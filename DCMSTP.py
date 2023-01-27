@@ -29,7 +29,7 @@ class DCMST():
                 self.weight[u, v] = self.adj[u, v]*euc(u, v)
 
         # generating degrees
-        self.maxDegree = random.integers(low=a, high=b+1, size=n)
+        self.max_degree = random.integers(low=a, high=b+1, size=n)
 
 def Prim(inst, weight):
     n = inst.n
@@ -54,22 +54,40 @@ def Prim(inst, weight):
     return T, totalW
 
 def LRP(instance, multipliers):
-    m = multipliers['degree_constraints']
-    lagWeights = lambda u, v: instance.weight[u, v] + m[u] + m[v]
-    edges, lrp = Prim(instance, lagWeights)
-    lrp -= np.matmul(m, instance.maxDegree)
-    return edges, lrp
+    b = multipliers['degree_constraints']
+    mod_weight = lambda u, v: instance.weight[u, v] + b[u] + b[v]
+    edges, obj = Prim(instance, mod_weight)
+    obj -= np.matmul(b, instance.max_degree)
+    return edges, obj
 
 def get_subgradient(instance, sol):
     subg = np.zeros(instance.n)
     for u, v in sol:
         subg[u] += 1
         subg[v] += 1
-    subg -= instance.maxDegree 
+    subg -= instance.max_degree 
 
     return subg
 
-if __name__ == '__main__':
+def example_1():
+    import pylar.LR as LR
+ 
+    rng = np.random.default_rng(0)
+
+    inst = DCMST(n=100, a=1, b=3, density=1, l=1000, random=rng)
+    edges, cost = Prim(inst, lambda u, v: inst.weight[u, v])
+
+
+    ldp_sol, ldp_obj, ldp_mults = LR.subgradient(instance=inst,
+                                                 lagrangian_subproblem_solver=LRP,
+                                                 dualized_constraints={'degree_constraints':{'shape':(inst.n,), 'subgradient':get_subgradient, 'sense':'L'}},
+                                                 stop_criterion=LR.stop.max_iter(1000),
+                                                 stepsize=LR.step.constant_stepsize(0.1))
+
+
+    print(ldp_obj)
+
+def example_2():
     import pylar.LR as LR
  
     rng = np.random.default_rng(0)
@@ -89,3 +107,9 @@ if __name__ == '__main__':
 
 
     print(ldp_obj)
+
+if __name__ == '__main__':
+    #example_1()
+    example_2()
+
+
