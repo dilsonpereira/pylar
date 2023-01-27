@@ -1,35 +1,35 @@
 import numpy as np
 
 class DCMST():
-    def __init__(self, n, a, b, l=1000, density=1, random=np.random):
+    '''
+    A class for representing and generating degree constrained minimum spanning tree problems
+    '''
+    def __init__(self, 
+                 n, # number of vertices
+                 a, b, # vertex degrees will be in the interval [a,b]
+                 density, # graph density             
+                 l, # vertex coordinatex will be in the interaval [0,l)
+                 random=np.random.default_rng(0), # random number generator
+                 ):
         self.n = n
 
-        self.adj = random.binomial(1, density, (n, n))
-        for i in range(n):
-            self.adj[i, i] = 0
+        # generating edges
+        edges = [(u, v) for u in range(n) for v in range(n) if random.random() < density]
+        self.adj = np.zeros((n,n))
+        for u, v in edges:
+            self.adj[u,v] = self.adj[v,u] = 1
 
-        self.X = random.random(n)*l
-        self.Y = random.random(n)*l
+        # generating edge weights
+        self.coords = random.random((n,2))*l
         self.weight = np.zeros((n, n))
 
-        euc = lambda u, v: ((self.X[u]-self.X[v])**2+(self.Y[u]-self.Y[v])**2)**0.5
+        euc = lambda u, v: np.linalg.norm(self.coords[u]-self.coords[v])
         for u in range(n):
             for v in range(n):
                 self.weight[u, v] = self.adj[u, v]*euc(u, v)
 
-        V = [v for v in range(n)]
-        random.shuffle(V)
-        degree_sum = 2*n-2
-        self.maxDegree = np.zeros(n)
-        i = n
-        for v in V:
-            i -= 1
-            if i == 0:
-                self.maxDegree[v] = degree_sum
-            else:
-                max_degree = degree_sum - i
-                self.maxDegree[v] = random.integers(min(a, max_degree), min(b, max_degree)+1)
-            degree_sum -= self.maxDegree[v]
+        # generating degrees
+        self.maxDegree = random.integers(low=a, high=b+1, size=n)
 
 def Prim(inst, weight):
     n = inst.n
@@ -54,10 +54,10 @@ def Prim(inst, weight):
     return T, totalW
 
 def LRP(instance, multipliers):
-    multipliers = multipliers[0]
-    lagWeights = lambda u, v: instance.weight[u, v] + multipliers[u] + multipliers[v]
+    m = multipliers['degree_constraints']
+    lagWeights = lambda u, v: instance.weight[u, v] + m[u] + m[v]
     edges, lrp = Prim(instance, lagWeights)
-    lrp -= np.matmul(multipliers, instance.maxDegree)
+    lrp -= np.matmul(m, instance.maxDegree)
     return edges, lrp
 
 def get_subgradient(instance, sol):
@@ -70,19 +70,22 @@ def get_subgradient(instance, sol):
     return subg
 
 if __name__ == '__main__':
-    import LR
-
+    import pylar.LR as LR
+ 
     rng = np.random.default_rng(0)
 
-    inst = DCMST(n=50, a=1, b=4, random=rng)
+    inst = DCMST(n=100, a=1, b=3, density=1, l=1000, random=rng)
     edges, cost = Prim(inst, lambda u, v: inst.weight[u, v])
 
 
     ldp_sol, ldp_obj, ldp_mults = LR.subgradient(instance=inst,
                                                  lagrangian_subproblem_solver=LRP,
-                                                 dualized_constraints=[{'shape':(inst.n,), 'subgradient':get_subgradient, 'sense':'E'}],
-                                                 stepsize=LR.get_Polyak_steplength(opt_estimate=8000),
-                                                 direction=LR.get_direction_pipe([LR.get_subgradient(),
-                                                                                  LR.get_polyak_direction(alpha=0.9)]))
+                                                 dualized_constraints={'degree_constraints':{'shape':(inst.n,), 'subgradient':get_subgradient, 'sense':'L'}},
+                                                 stop_criterion=LR.stop.max_iter(m=1000),
+                                                 stepsize=LR.step.pipe([LR.step.square_summable_not_summable(a=1),
+                                                                        LR.step.Polyak_estimated(default_estimate=20000)]),
+                                                 direction=LR.direction.pipe([LR.direction.subgradient(),
+                                                                              LR.direction.smooth(alpha=0.99)]))
 
 
+    print(ldp_obj)
